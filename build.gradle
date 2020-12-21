@@ -1,3 +1,9 @@
+import org.apache.tools.ant.util.ReaderInputStream
+import sun.nio.cs.StreamDecoder
+
+import java.lang.reflect.Field
+import java.nio.CharBuffer
+
 plugins {
     id 'java'
     id 'java-library'
@@ -15,6 +21,9 @@ repositories {
 }
 
 dependencies {
+    // gronk
+    implementation gradleApi()
+
     api('com.github.javaparser:javaparser-core:3.17.0')
     // asm
     api('org.ow2.asm:asm:9.0')

@@ -3,7 +3,9 @@ package io.github.astrarre.stripper;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.Collections;
@@ -32,6 +34,7 @@ import org.objectweb.asm.tree.ClassNode;
 
 public class Stripper {
 	public static final CombinedProcessor PROCESSORS = new CombinedProcessor();
+
 	static {
 		PROCESSORS.add(new OuterMethodStripper());
 		PROCESSORS.add(new AccessStripper());
@@ -49,17 +52,12 @@ public class Stripper {
 		strip(filter, input, new ZipOutputStreamWriter(output));
 	}
 
-	public static void strip(List<String> filter, File file) throws IOException {
-		strip(filter, file, new ByteMapOutputStreamWriter(file));
-	}
-
 	/**
 	 * @param filter a list of regexes to filter out files or folders, the pattern must match both .class and .java!
 	 * @param inputFile the input jar
 	 */
 	public static void strip(List<String> filter, File inputFile, ZipWriter output) throws IOException {
-		Predicate<String> patterns = filter.stream().map(Pattern::compile).map(Pattern::asPredicate)
-		                           .reduce(Predicate::and).orElse(s -> false);
+		Predicate<String> patterns = filter.stream().map(Pattern::compile).map(Pattern::asPredicate).reduce(Predicate::and).orElse(s -> false);
 
 		ZipFile file = new ZipFile(inputFile);
 		Enumeration<? extends ZipEntry> enumeration = file.entries();
@@ -69,30 +67,25 @@ public class Stripper {
 			ZipEntry entry = enumeration.nextElement();
 			String name = entry.getName();
 
-			if(patterns.test(name) || entry.isDirectory()) {
+			if (patterns.test(name) || entry.isDirectory()) {
 				continue;
 			}
 
 			InputStream input = file.getInputStream(entry);
 			if (name.endsWith(".class")) {
 				// asm strip
-				ClassReader reader = new ClassReader(input);
-				ClassNode node = new ClassNode();
-				reader.accept(node, ClassReader.SKIP_FRAMES | ClassReader.SKIP_CODE);
-				if(!PROCESSORS.apply(node)) {
-					ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
-					node.accept(writer);
+				byte[] data = stripClas(name, input);
+				if (data != null) {
 					output.openEntry(entry.getName());
-					output.getOutput().write(writer.toByteArray());
+					output.getOutput().write(data);
 					output.closeEntry();
 				}
 			} else if (name.endsWith(".java")) {
 				// source strip
-				CompilationUnit unit = StaticJavaParser.parse(input);
-				unit.setStorage(Paths.get(entry.getName()));
-				if(!PROCESSORS.apply(unit, unit.getPrimaryType().orElseThrow(() -> new IllegalStateException("Invalid java file: " + name)))) {
+				byte[] data = stripJava(name, new InputStreamReader(input));
+				if (data != null) {
 					output.openEntry(entry.getName());
-					output.getOutput().write(unit.toString().getBytes(StandardCharsets.UTF_8));
+					output.getOutput().write(data);
 					output.closeEntry();
 				}
 			} else {
@@ -107,8 +100,32 @@ public class Stripper {
 			}
 		}
 
-
 		file.close();
 		output.close();
+	}
+
+	public static byte[] stripClas(String path, InputStream stream) throws IOException {
+		ClassReader reader = new ClassReader(stream);
+		ClassNode node = new ClassNode();
+		reader.accept(node, ClassReader.SKIP_FRAMES | ClassReader.SKIP_CODE);
+		if (!PROCESSORS.apply(node)) {
+			ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+			node.accept(writer);
+			return writer.toByteArray();
+		}
+		return null;
+	}
+
+	public static byte[] stripJava(String path, Reader reader) {
+		CompilationUnit unit = StaticJavaParser.parse(reader);
+		unit.setStorage(Paths.get(path));
+		if (!PROCESSORS.apply(unit, unit.getPrimaryType().orElseThrow(() -> new IllegalStateException("Invalid java file: " + path)))) {
+			return unit.toString().getBytes(StandardCharsets.UTF_8);
+		}
+		return null;
+	}
+
+	public static void strip(List<String> filter, File file) throws IOException {
+		strip(filter, file, new ByteMapOutputStreamWriter(file));
 	}
 }

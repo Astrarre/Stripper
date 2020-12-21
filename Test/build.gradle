@@ -1,0 +1,35 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.github.javaparser:javaparser-core:3.17.0'
+        // asm
+        classpath 'org.ow2.asm:asm:9.0'
+        classpath 'org.ow2.asm:asm-commons:9.0'
+        classpath parent.tasks.jar.outputs.files
+    }
+}
+
+plugins {
+    id 'java'
+}
+
+group 'io.github.astrarre'
+version '1.0.0'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+    compile parent
+}
+
+import io.github.astrarre.stripper.gradle.StripperAction
+task strippedJar(type: Jar) {
+    mainSpec.appendCachingSafeCopyAction(new StripperAction())
+}
